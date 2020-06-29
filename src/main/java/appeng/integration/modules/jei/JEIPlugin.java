@@ -18,6 +18,8 @@
 
 package appeng.integration.modules.jei;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Optional;
 
 import com.google.common.collect.ImmutableList;
@@ -32,8 +34,10 @@ import mezz.jei.api.IModPlugin;
 import mezz.jei.api.JeiPlugin;
 import mezz.jei.api.constants.VanillaRecipeCategoryUid;
 import mezz.jei.api.constants.VanillaTypes;
+import mezz.jei.api.ingredients.IIngredientType;
 import mezz.jei.api.registration.*;
 import mezz.jei.api.runtime.IJeiRuntime;
+import mezz.jei.plugins.jei.ingredients.DebugIngredient;
 
 import appeng.api.AEApi;
 import appeng.api.config.CondenserOutput;
@@ -44,6 +48,7 @@ import appeng.api.features.AEFeature;
 import appeng.container.implementations.CraftingTermContainer;
 import appeng.container.implementations.PatternTermContainer;
 import appeng.core.AEConfig;
+import appeng.core.Api;
 import appeng.core.AppEng;
 import appeng.core.localization.GuiText;
 import appeng.integration.abstraction.JEIFacade;
@@ -169,6 +174,32 @@ public class JEIPlugin implements IModPlugin {
     @Override
     public void onRuntimeAvailable(IJeiRuntime jeiRuntime) {
         JEIFacade.setInstance(new JeiRuntimeAdapter(jeiRuntime));
+        this.hideDebugTools(jeiRuntime);
+
+    }
+
+    private void hideDebugTools(IJeiRuntime jeiRuntime) {
+        Collection<ItemStack> toRemove = new ArrayList<>();
+
+        // We use the internal API here as exception as debug tools are not part of the
+        // public one by design.
+        toRemove.add(Api.INSTANCE.definitions().items().dummyFluidItem().maybeStack(1).orElse(null));
+
+        if (!AEConfig.instance().isFeatureEnabled(AEFeature.UNSUPPORTED_DEVELOPER_TOOLS)) {
+            toRemove.add(Api.INSTANCE.definitions().blocks().cubeGenerator().maybeStack(1).orElse(null));
+            toRemove.add(Api.INSTANCE.definitions().blocks().chunkLoader().maybeStack(1).orElse(null));
+            toRemove.add(Api.INSTANCE.definitions().blocks().energyGenerator().maybeStack(1).orElse(null));
+            toRemove.add(Api.INSTANCE.definitions().blocks().itemGen().maybeStack(1).orElse(null));
+            toRemove.add(Api.INSTANCE.definitions().blocks().phantomNode().maybeStack(1).orElse(null));
+
+            toRemove.add(Api.INSTANCE.definitions().items().toolDebugCard().maybeStack(1).orElse(null));
+            toRemove.add(Api.INSTANCE.definitions().items().toolEraser().maybeStack(1).orElse(null));
+            toRemove.add(Api.INSTANCE.definitions().items().toolMeteoritePlacer().maybeStack(1).orElse(null));
+            toRemove.add(Api.INSTANCE.definitions().items().toolReplicatorCard().maybeStack(1).orElse(null));
+        }
+
+        jeiRuntime.getIngredientManager().removeIngredientsAtRuntime(mezz.jei.api.constants.VanillaTypes.ITEM,
+                toRemove);
     }
 
 }
