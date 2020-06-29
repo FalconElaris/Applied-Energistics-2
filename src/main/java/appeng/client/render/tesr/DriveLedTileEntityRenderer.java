@@ -16,6 +16,7 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.fml.common.ObfuscationReflectionHelper;
 
+import appeng.api.storage.cells.BlinkingState;
 import appeng.block.storage.DriveSlotState;
 import appeng.client.render.FacingToRotation;
 import appeng.tile.storage.DriveTileEntity;
@@ -35,7 +36,8 @@ public class DriveLedTileEntityRenderer extends TileEntityRenderer<DriveTileEnti
         STATE_COLORS = new EnumMap<>(DriveSlotState.class);
         STATE_COLORS.put(DriveSlotState.OFFLINE, new Vector3f(0, 0, 0));
         STATE_COLORS.put(DriveSlotState.ONLINE, new Vector3f(0, 1, 0));
-        STATE_COLORS.put(DriveSlotState.TYPES_FULL, new Vector3f(0, 0.667f, 0));
+        STATE_COLORS.put(DriveSlotState.NOT_EMPTY, new Vector3f(0f, 0.667f, 1));
+        STATE_COLORS.put(DriveSlotState.TYPES_FULL, new Vector3f(1, 0.667f, 0));
         STATE_COLORS.put(DriveSlotState.FULL, new Vector3f(1, 0, 0));
     }
 
@@ -130,10 +132,11 @@ public class DriveLedTileEntityRenderer extends TileEntityRenderer<DriveTileEnti
         }
 
         Vector3f col = STATE_COLORS.get(state);
-        if (drive.isCellBlinking(slot)) {
+        BlinkingState blinking = drive.isCellBlinking(slot);
+        if (blinking.isBlinking()) {
             // 200 ms interval (100ms to get to red, then 100ms back)
-            long t = System.currentTimeMillis() % 200;
-            float f = (t - 100) / 200.0f + 0.5f;
+            long t = System.currentTimeMillis() % blinking.getInterval();
+            float f = (t - blinking.getDutyCycle()) / blinking.getInterval() + 0.5f;
             f = easeInOutCubic(f);
             col = col.copy();
             col.lerp(BLINK_COLOR, f);

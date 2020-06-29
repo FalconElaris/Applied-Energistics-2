@@ -26,9 +26,12 @@ import java.util.EnumSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+
+import com.google.common.base.Splitter;
 
 import net.minecraft.inventory.container.ContainerType;
 import net.minecraft.item.Item;
@@ -53,6 +56,7 @@ import appeng.api.networking.security.IActionSource;
 import appeng.api.networking.storage.IStorageGrid;
 import appeng.api.storage.IMEInventoryHandler;
 import appeng.api.storage.IStorageChannel;
+import appeng.api.storage.cells.BlinkingState;
 import appeng.api.storage.cells.CellState;
 import appeng.api.storage.cells.ICellHandler;
 import appeng.api.storage.cells.ICellInventory;
@@ -77,9 +81,15 @@ import appeng.util.inv.filter.IAEItemFilter;
 
 public class DriveTileEntity extends AENetworkInvTileEntity implements IChestOrDrive, IPriorityHost {
 
-    private static final int BIT_POWER_MASK = 0x80000000;
-    private static final int BIT_BLINK_MASK = 0x24924924;
-    private static final int BIT_STATE_MASK = 0xDB6DB6DB;
+    private static final long BIT_POWER_MASK = Long.MIN_VALUE;
+    private static final long BIT_BLINK_MASK = 0b11000110001100011000110001100011000110001100011000l;
+    private static final long BIT_STATE_MASK = 0b00111001110011100111001110011100111001110011100111l;
+
+    private static final int BIT_CELL_STATE_MASK = 0b111;
+    private static final int BIT_CELL_STATE_BITS = 3;
+    private static final int BIT_CELL_BLINK_MASK = 0b11;
+    private static final int BIT_CELL_BLINK_BITS = 2;
+    private static final int BIT_CELL_BITS = BIT_CELL_STATE_BITS + BIT_CELL_BLINK_BITS;
 
     private final AppEngCellInventory inv = new AppEngCellInventory(this, 10);
     private final ICellHandler[] handlersBySlot = new ICellHandler[10];
@@ -95,15 +105,21 @@ public class DriveTileEntity extends AENetworkInvTileEntity implements IChestOrD
     /**
      * The state of all cells inside a drive as bitset, using the following format.
      *
-     * Bit 31: power state. 0 = off, 1 = on. Bit 30: undefined Bit 29-0: 3 bits as
-     * state of each cell with the cell in slot 0 located in the 3 least significant
-     * bits.
+     * - Bit 63: power state. 0 = off, 1 = on.
+     * 
+     * - Bit 62-50: reserved
+     * 
+     * - Bit 49-0: 3+2 bits for the state of each cell
      *
-     * Cell states: Bit 2: blink. 0 = off, 1 = on. Bit 1-0: cell status
+     * Cell states:
+     * 
+     * - Bit 2-0: {@link CellState} ordinal
+     * 
+     * - Bit 4-3: Blinking patterns
      *
      *
      */
-    private int state = 0;
+    private long state = 0;
 
     public DriveTileEntity(TileEntityType<?> tileEntityTypeIn) {
         super(tileEntityTypeIn);
@@ -122,15 +138,18 @@ public class DriveTileEntity extends AENetworkInvTileEntity implements IChestOrD
     @Override
     protected void writeToStream(final PacketBuffer data) throws IOException {
         super.writeToStream(data);
-        int newState = 0;
+        long newState = 0;
 
         if (this.getProxy().isActive()) {
             newState |= BIT_POWER_MASK;
         }
         for (int x = 0; x < this.getCellCount(); x++) {
-            newState |= (this.getCellStatus(x).ordinal() << (3 * x));
+            final long o = this.getCellStatus(x).ordinal();
+            final long i = (o << (BIT_CELL_BITS * x));
+            newState |= i;
         }
-        data.writeInt(newState);
+
+        data.writeLong(newState);
 
         writeCellItemIds(data);
     }
@@ -166,8 +185,8 @@ public class DriveTileEntity extends AENetworkInvTileEntity implements IChestOrD
     @Override
     protected boolean readFromStream(final PacketBuffer data) throws IOException {
         boolean c = super.readFromStream(data);
-        final int oldState = this.state;
-        this.state = data.readInt();
+        final long oldState = this.state;
+        this.state = data.readLong();
 
         c |= this.readCellItemIDs(data);
 
@@ -224,7 +243,8 @@ public class DriveTileEntity extends AENetworkInvTileEntity implements IChestOrD
     @Override
     public CellState getCellStatus(final int slot) {
         if (Platform.isClient()) {
-            return CellState.values()[(this.state >> (slot * 3)) & 3];
+            final long cellState = ((this.state >> (slot * BIT_CELL_BITS)) & BIT_CELL_STATE_MASK);
+            return CellState.values()[(int) cellState];
         }
 
         final DriveWatcher handler = this.invBySlot[slot];
@@ -245,8 +265,9 @@ public class DriveTileEntity extends AENetworkInvTileEntity implements IChestOrD
     }
 
     @Override
-    public boolean isCellBlinking(final int slot) {
-        return ((this.state >> (slot * 3 + 2)) & 0x01) == 0x01;
+    public BlinkingState isCellBlinking(final int slot) {
+        final int blinking = (int) ((this.state >> (slot * BIT_CELL_BITS + BIT_CELL_STATE_BITS)) & BIT_CELL_BLINK_MASK);
+        return BlinkingState.values()[blinking];
     }
 
     @Override
@@ -286,7 +307,7 @@ public class DriveTileEntity extends AENetworkInvTileEntity implements IChestOrD
         }
 
         for (int x = 0; x < this.getCellCount(); x++) {
-            newState |= (this.getCellStatus(x).ordinal() << (3 * x));
+            newState |= (this.getCellStatus(x).ordinal() << (BIT_CELL_BITS * x));
         }
 
         if (newState != this.state) {
@@ -416,7 +437,7 @@ public class DriveTileEntity extends AENetworkInvTileEntity implements IChestOrD
 
     @Override
     public void blinkCell(final int slot) {
-        this.state |= 1 << (slot * 3 + 2);
+        this.state |= 2 << (slot * BIT_CELL_BITS + BIT_CELL_STATE_BITS);
 
         this.recalculateDisplay();
     }

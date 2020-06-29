@@ -76,6 +76,7 @@ import appeng.api.storage.IStorageChannel;
 import appeng.api.storage.IStorageMonitorable;
 import appeng.api.storage.IStorageMonitorableAccessor;
 import appeng.api.storage.ITerminalHost;
+import appeng.api.storage.cells.BlinkingState;
 import appeng.api.storage.cells.CellState;
 import appeng.api.storage.cells.ICellGuiHandler;
 import appeng.api.storage.cells.ICellHandler;
@@ -152,7 +153,7 @@ public class ChestTileEntity extends AENetworkPowerTileEntity
             try {
                 this.getProxy().getGrid().postEvent(new MENetworkPowerStorage(this, PowerEventType.REQUEST_POWER));
             } catch (final GridAccessException e) {
-                // :(
+                // :(w
             }
         } else {
             this.recalculateDisplay();
@@ -163,13 +164,13 @@ public class ChestTileEntity extends AENetworkPowerTileEntity
         final int oldState = this.state;
 
         for (int x = 0; x < this.getCellCount(); x++) {
-            this.state |= (this.getCellStatus(x).ordinal() << (3 * x));
+            this.state |= (this.getCellStatus(x).ordinal() << (5 * x));
         }
 
         if (this.isPowered()) {
-            this.state |= 0x40;
+            this.state |= 0b1000000;
         } else {
-            this.state &= ~0x40;
+            this.state &= ~0b1000000;
         }
 
         final boolean currentActive = this.getProxy().isActive();
@@ -245,7 +246,7 @@ public class ChestTileEntity extends AENetworkPowerTileEntity
     @Override
     public CellState getCellStatus(final int slot) {
         if (isRemote()) {
-            return CellState.values()[(this.state >> (slot * 3)) & 3];
+            return CellState.values()[(this.state >> (slot * 5)) & 0b111];
         }
 
         this.updateHandler();
@@ -273,7 +274,7 @@ public class ChestTileEntity extends AENetworkPowerTileEntity
     @Override
     public boolean isPowered() {
         if (isRemote()) {
-            return (this.state & 0x40) == 0x40;
+            return (this.state & 0b1000000) == 0b1000000;
         }
 
         boolean gridPowered = this.getAECurrentPower() > 64;
@@ -289,13 +290,14 @@ public class ChestTileEntity extends AENetworkPowerTileEntity
     }
 
     @Override
-    public boolean isCellBlinking(final int slot) {
+    public BlinkingState isCellBlinking(final int slot) {
         final long now = this.world.getGameTime();
         if (now - this.lastStateChange > 8) {
-            return false;
+            return BlinkingState.OFF;
         }
 
-        return ((this.state >> (slot * 3 + 2)) & 0x01) == 0x01;
+        final int blinking = ((this.state >> (slot * 5 + 2)) & 0b11);
+        return BlinkingState.values()[blinking];
     }
 
     @Override
@@ -351,7 +353,7 @@ public class ChestTileEntity extends AENetworkPowerTileEntity
         if (this.world.getGameTime() - this.lastStateChange > 8) {
             this.state = 0;
         } else {
-            this.state &= 0x24924924; // just keep the blinks...
+            this.state &= 0b11000; // just keep the blinks...
         }
 
         for (int x = 0; x < this.getCellCount(); x++) {
@@ -359,9 +361,9 @@ public class ChestTileEntity extends AENetworkPowerTileEntity
         }
 
         if (this.isPowered()) {
-            this.state |= 0x40;
+            this.state |= 0b1000000;
         } else {
-            this.state &= ~0x40;
+            this.state &= ~0b1000000;
         }
 
         data.writeByte(this.state);
@@ -519,7 +521,7 @@ public class ChestTileEntity extends AENetworkPowerTileEntity
         }
         this.lastStateChange = now;
 
-        this.state |= 1 << (slot * 3 + 2);
+        this.state |= 2 << (slot * 5 + 2);
 
         this.recalculateDisplay();
     }
